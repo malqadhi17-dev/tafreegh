@@ -1,0 +1,96 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>تفريغ</title>
+<link rel="icon" href="icon.svg"><link rel="apple-touch-icon" href="icon.svg"><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#0f766e">
+<style>
+:root{--g:#0f766e;--d:#134e4a}*{box-sizing:border-box}
+body{margin:0;font-family:"Noto Naskh Arabic",Tahoma,system-ui,sans-serif;background:#f1f5f4;color:#10231f;line-height:1.8}
+header{display:flex;align-items:center;gap:14px;justify-content:center;padding:28px 16px 8px}
+header img{width:68px;height:68px;border-radius:18px}header h1{margin:0;font-size:2.4rem;color:var(--d)}
+main{max-width:760px;margin:auto;padding:12px 16px 60px}
+.card{background:#fff;border-radius:20px;padding:20px;box-shadow:0 2px 14px #0001;margin-bottom:16px}
+#drop{border:2px dashed var(--g);border-radius:16px;padding:30px 12px;text-align:center;cursor:pointer;color:var(--g);font-weight:700}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}
+label{font-size:.85rem;color:#5b6e6a;display:block}
+select,button{font:inherit;width:100%;padding:10px;border-radius:12px;border:1px solid #cbd5d3;background:#fff}
+button{background:var(--g);color:#fff;border:0;font-weight:700;cursor:pointer}button:disabled{opacity:.5}
+#tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}#tools button{flex:1;min-width:110px;background:var(--d)}
+progress{width:100%;height:10px}#st{font-size:.9rem;color:#5b6e6a;min-height:1.6em}
+#out p{margin:0 0 14px;padding-bottom:10px;border-bottom:1px solid #eef2f1}.sp{color:var(--g);cursor:pointer}small{color:#7a8c88}
+@media print{.np{display:none!important}body{background:#fff}.card{box-shadow:none;padding:0}}
+</style></head><body>
+<header class="np"><img src="icon.svg" alt="تفريغ"><h1>تفريغ</h1></header>
+<main>
+<section class="card np">
+<div id="drop">اضغط هنا لاختيار ملف صوتي (MP3 · WAV · M4A · OGG) — يدعم الملفات الطويلة</div>
+<input id="f" type="file" accept="audio/*,video/*" hidden>
+<div class="row">
+<div><label>لغة التسجيل</label><select id="l"><option value="arabic">العربية</option><option value="english">English</option><option value="auto">تلقائي</option></select></div>
+<div><label>مستوى الدقة</label><select id="q"><option value="small">متوازن (small)</option><option value="large">أعلى دقة (يتطلب WebGPU)</option><option value="base">سريع (base)</option></select></div>
+<div><label>عدد المتحدثين</label><select id="n"><option value="auto">تلقائي</option><option value="1">متحدث واحد</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></div>
+</div>
+<button id="go">ابدأ التفريغ</button><progress id="bar" value="0" max="100" style="margin-top:14px"></progress><div id="st"></div>
+</section>
+<section class="card" id="doc"><div id="tools" class="np" hidden><button id="w">تصدير Word</button><button id="p">تصدير PDF</button><button id="c">نسخ النص</button></div><div id="out"></div></section>
+</main>
+<script type="module">
+import{pipeline,AutoProcessor,AutoModel}from'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0';
+const $=s=>document.querySelector(s),esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])),
+p2=n=>String(n).padStart(2,'0'),fmt=t=>{t=Math.floor(t);const h=Math.floor(t/3600);return(h?h+':':'')+p2(Math.floor(t%3600/60))+':'+p2(t%60)},
+setS=t=>$('#st').textContent=t,nm=k=>names[k]||'المتحدث '+(k+1);
+let file,segs=[],names={},G=[];
+$('#drop').onclick=()=>$('#f').click();
+$('#f').onchange=e=>{file=e.target.files[0];if(file)$('#drop').textContent='✔ '+file.name};
+async function decode(f){const c=new(window.AudioContext||webkitAudioContext)({sampleRate:16000}),b=await c.decodeAudioData(await f.arrayBuffer()),n=b.numberOfChannels,x=new Float32Array(b.length);
+for(let i=0;i<n;i++){const d=b.getChannelData(i);for(let j=0;j<x.length;j++)x[j]+=d[j]/n}c.close();return x}
+function draw(){G=[];for(const g of segs){const p=G[G.length-1];if(p&&p.k===g.k&&g.s-p.s<60)p.t+=' '+g.t;else G.push({...g})}
+const multi=new Set(segs.map(s=>s.k)).size>1;
+$('#out').innerHTML=G.map(g=>`<p>${multi?`<b class="sp" data-k="${g.k}">${esc(nm(g.k))}</b> `:''}<small>${fmt(g.s)}</small><br>${esc(g.t)}</p>`).join('')}
+$('#out').onclick=e=>{if(e.target.classList.contains('sp')){const k=+e.target.dataset.k,v=prompt('اسم المتحدث',nm(k));if(v){names[k]=v;draw()}}};
+async function diarize(pcm,N){
+setS('تحميل نموذج تمييز المتحدثين…');
+const id='Xenova/wavlm-base-plus-sv',P=await AutoProcessor.from_pretrained(id),M=await AutoModel.from_pretrained(id,{dtype:'q8'}),C=[];let last=0;
+for(let i=0;i<segs.length;i++){const g=segs[i];
+if(g.e-g.s<1){g.k=last;continue}
+const a=pcm.subarray(Math.floor(g.s*16000),Math.floor(Math.min(g.e,g.s+10)*16000)),{embeddings}=await M(await P(a)),v=Array.from(embeddings.data),n=Math.hypot(...v),u=v.map(x=>x/n);
+let b=-1,bs=-2;C.forEach((c,j)=>{const s=u.reduce((t,x,m)=>t+x*c.s[m],0)/Math.hypot(...c.s);if(s>bs){bs=s;b=j}});
+if(b<0||(bs<0.8&&(!N||C.length<N))){C.push({s:u,n:1});b=C.length-1}else C[b].s=C[b].s.map((x,m)=>x+u[m]);
+g.k=last=b;if(i%5==0)setS('تمييز المتحدثين… '+Math.round(i/segs.length*100)+'%')}}
+$('#go').onclick=async()=>{
+if(!file)return setS('اختر ملفاً صوتياً أولاً');
+$('#go').disabled=true;segs=[];names={};$('#out').innerHTML='';$('#tools').hidden=true;$('#bar').value=0;
+let lock;try{lock=await navigator.wakeLock?.request('screen')}catch{}
+try{
+const q=$('#q').value,lang=$('#l').value,N=$('#n').value,gpu=!!navigator.gpu;
+const model=q==='base'?'Xenova/whisper-base':(q==='large'&&gpu)?'onnx-community/whisper-large-v3-turbo':'Xenova/whisper-small';
+const dtype=!gpu?'q8':model.includes('large')?{encoder_model:'fp16',decoder_model_merged:'q4'}:{encoder_model:'fp32',decoder_model_merged:'q8'};
+const asr=await pipeline('automatic-speech-recognition',model,{device:gpu?'webgpu':'wasm',dtype,progress_callback:p=>{if(p.status==='progress')setS('تحميل نموذج التفريغ (مرة واحدة)… '+Math.round(p.progress)+'%')}});
+setS('قراءة الملف الصوتي…');const pcm=await decode(file),W=16000*300;
+for(let o=0;o<pcm.length;o+=W){
+const r=await asr(pcm.subarray(o,o+W),{language:lang==='auto'?null:lang,task:'transcribe',chunk_length_s:30,stride_length_s:5,return_timestamps:true});
+for(const c of r.chunks){const t=c.text.trim();if(!t)continue;const s=o/16000+c.timestamp[0];segs.push({s,e:o/16000+(c.timestamp[1]??c.timestamp[0]+2),t,k:0})}
+const pr=Math.round(Math.min(o+W,pcm.length)/pcm.length*100);$('#bar').value=pr;setS('جارٍ التفريغ… '+pr+'%');draw()}
+if(N!=='1'&&segs.length)await diarize(pcm,N==='auto'?0:+N);
+draw();$('#tools').hidden=false;setS('اكتمل التفريغ ✔ — اضغط على اسم المتحدث لتغييره')
+}catch(e){setS('تعذّر التفريغ: '+(e.message||e))}
+lock?.release();$('#go').disabled=false};
+const multi=()=>new Set(segs.map(s=>s.k)).size>1,lines=()=>G.map(g=>[(multi()?nm(g.k)+' ':'')+'['+fmt(g.s)+']',g.t]);
+$('#c').onclick=()=>navigator.clipboard.writeText(lines().map(l=>l.join('\n')).join('\n\n'));
+$('#p').onclick=()=>print();
+function crc(b){let t=crc.t||(crc.t=Array.from({length:256},(_,n)=>{for(let k=0;k<8;k++)n=n&1?0xEDB88320^(n>>>1):n>>>1;return n>>>0})),r=-1;for(const x of b)r=t[(r^x)&255]^(r>>>8);return(r^-1)>>>0}
+function zip(fs){const E=new TextEncoder(),pt=[],cd=[];let off=0;
+for(const f of fs){const n=E.encode(f.n),d=E.encode(f.d),c=crc(d),h=new DataView(new ArrayBuffer(30)),z=new DataView(new ArrayBuffer(46));
+h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x800,true);h.setUint16(12,0x21,true);h.setUint32(14,c,true);h.setUint32(18,d.length,true);h.setUint32(22,d.length,true);h.setUint16(26,n.length,true);
+z.setUint32(0,0x02014b50,true);z.setUint16(4,20,true);z.setUint16(6,20,true);z.setUint16(8,0x800,true);z.setUint16(14,0x21,true);z.setUint32(16,c,true);z.setUint32(20,d.length,true);z.setUint32(24,d.length,true);z.setUint16(28,n.length,true);z.setUint32(42,off,true);
+pt.push(new Uint8Array(h.buffer),n,d);cd.push(new Uint8Array(z.buffer),n);off+=30+n.length+d.length}
+const e=new DataView(new ArrayBuffer(22)),sz=cd.reduce((a,x)=>a+x.length,0);
+e.setUint32(0,0x06054b50,true);e.setUint16(8,fs.length,true);e.setUint16(10,fs.length,true);e.setUint32(12,sz,true);e.setUint32(16,off,true);
+return new Blob([...pt,...cd,new Uint8Array(e.buffer)],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'})}
+$('#w').onclick=()=>{
+const run=(t,b,s)=>`<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>${b?'<w:b/><w:bCs/>':''}<w:sz w:val="${s||28}"/><w:szCs w:val="${s||28}"/><w:rtl/></w:rPr><w:t xml:space="preserve">${esc(t)}</w:t></w:r>`,
+para=r=>`<w:p><w:pPr><w:bidi/></w:pPr>${r}</w:p>`;
+const body=para(run('تفريغ: '+(file?.name||''),1,36))+lines().map(l=>para(run(l[0],1))+para(run(l[1]))).join('');
+const doc=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="708" w:footer="708" w:gutter="0"/><w:bidi/></w:sectPr></w:body></w:document>`;
+const blob=zip([{n:'[Content_Types].xml',d:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'},
+{n:'_rels/.rels',d:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'},
+{n:'word/document.xml',d:doc}]);
+const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='تفريغ.docx';a.click()};
+</script></body></html>
