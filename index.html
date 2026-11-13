@@ -1,21 +1,24 @@
 <!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>تفريغ</title>
 <link rel="icon" href="icon.svg"><link rel="apple-touch-icon" href="icon.svg"><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#0f766e">
 <style>
-:root{--g:#0f766e;--d:#134e4a}*{box-sizing:border-box}
+:root{--g:#0f766e;--d:#134e4a}*{box-sizing:border-box}[hidden]{display:none!important}
 body{margin:0;font-family:"Noto Naskh Arabic",Tahoma,system-ui,sans-serif;background:#f1f5f4;color:#10231f;line-height:1.8}
 header{display:flex;align-items:center;gap:14px;justify-content:center;padding:28px 16px 8px}
 header img{width:68px;height:68px;border-radius:18px}header h1{margin:0;font-size:2.4rem;color:var(--d)}
-main{max-width:760px;margin:auto;padding:12px 16px 60px}
+main{max-width:800px;margin:auto;padding:12px 16px 60px}
 .card{background:#fff;border-radius:20px;padding:20px;box-shadow:0 2px 14px #0001;margin-bottom:16px}
+h2{margin:0 0 10px;font-size:1.1rem;color:var(--d)}
 #drop{border:2px dashed var(--g);border-radius:16px;padding:30px 12px;text-align:center;cursor:pointer;color:var(--g);font-weight:700}
 .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}
 label{font-size:.85rem;color:#5b6e6a;display:block}
 select,button{font:inherit;width:100%;padding:10px;border-radius:12px;border:1px solid #cbd5d3;background:#fff}
 button{background:var(--g);color:#fff;border:0;font-weight:700;cursor:pointer}button:disabled{opacity:.5}
 #tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}#tools button{flex:1;min-width:110px;background:var(--d)}
-progress{width:100%;height:10px}#st{font-size:.9rem;color:#5b6e6a;min-height:1.6em}
+progress{width:100%;height:10px;margin-top:14px}#st{font-size:.95rem;color:var(--d);min-height:1.8em;font-weight:700}
+#box{border:1px solid #dfe7e5;border-radius:14px;padding:14px;min-height:260px;max-height:60vh;overflow:auto;background:#fafcfb}
+#out:empty::before{content:"سيظهر نص التفريغ هنا أثناء العمل…";color:#9aa9a6}
 #out p{margin:0 0 14px;padding-bottom:10px;border-bottom:1px solid #eef2f1}.sp{color:var(--g);cursor:pointer}small{color:#7a8c88}
-@media print{.np{display:none!important}body{background:#fff}.card{box-shadow:none;padding:0}}
+@media print{.np{display:none!important}body{background:#fff}.card{box-shadow:none;padding:0}#box{max-height:none;border:0;overflow:visible}}
 </style></head><body>
 <header class="np"><img src="icon.svg" alt="تفريغ"><h1>تفريغ</h1></header>
 <main>
@@ -27,12 +30,14 @@ progress{width:100%;height:10px}#st{font-size:.9rem;color:#5b6e6a;min-height:1.6
 <div><label>مستوى الدقة</label><select id="q"><option value="small">متوازن (small)</option><option value="large">أعلى دقة (يتطلب WebGPU)</option><option value="base">سريع (base)</option></select></div>
 <div><label>عدد المتحدثين</label><select id="n"><option value="auto">تلقائي</option><option value="1">متحدث واحد</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></div>
 </div>
-<button id="go">ابدأ التفريغ</button><progress id="bar" value="0" max="100" style="margin-top:14px"></progress><div id="st"></div>
+<button id="go">ابدأ التفريغ</button><progress id="bar" value="0" max="100"></progress><div id="st"></div>
 </section>
-<section class="card" id="doc"><div id="tools" class="np" hidden><button id="w">تصدير Word</button><button id="p">تصدير PDF</button><button id="c">نسخ النص</button></div><div id="out"></div></section>
+<section class="card" id="doc"><h2 class="np">نافذة التفريغ</h2>
+<div id="tools" class="np" hidden><button id="w">تصدير Word</button><button id="p">تصدير PDF</button><button id="c">نسخ النص</button></div>
+<div id="box"><div id="out"></div></div></section>
 </main>
 <script type="module">
-import{pipeline,AutoProcessor,AutoModel}from'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0';
+import{pipeline,env,AutoProcessor,AutoModel}from'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0';
 const $=s=>document.querySelector(s),esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])),
 p2=n=>String(n).padStart(2,'0'),fmt=t=>{t=Math.floor(t);const h=Math.floor(t/3600);return(h?h+':':'')+p2(Math.floor(t%3600/60))+':'+p2(t%60)},
 setS=t=>$('#st').textContent=t,nm=k=>names[k]||'المتحدث '+(k+1);
@@ -43,10 +48,11 @@ async function decode(f){const c=new(window.AudioContext||webkitAudioContext)({s
 for(let i=0;i<n;i++){const d=b.getChannelData(i);for(let j=0;j<x.length;j++)x[j]+=d[j]/n}c.close();return x}
 function draw(){G=[];for(const g of segs){const p=G[G.length-1];if(p&&p.k===g.k&&g.s-p.s<60)p.t+=' '+g.t;else G.push({...g})}
 const multi=new Set(segs.map(s=>s.k)).size>1;
-$('#out').innerHTML=G.map(g=>`<p>${multi?`<b class="sp" data-k="${g.k}">${esc(nm(g.k))}</b> `:''}<small>${fmt(g.s)}</small><br>${esc(g.t)}</p>`).join('')}
+$('#out').innerHTML=G.map(g=>`<p>${multi?`<b class="sp" data-k="${g.k}">${esc(nm(g.k))}</b> `:''}<small>${fmt(g.s)}</small><br>${esc(g.t)}</p>`).join('');
+const b=$('#box');b.scrollTop=b.scrollHeight}
 $('#out').onclick=e=>{if(e.target.classList.contains('sp')){const k=+e.target.dataset.k,v=prompt('اسم المتحدث',nm(k));if(v){names[k]=v;draw()}}};
 async function diarize(pcm,N){
-setS('تحميل نموذج تمييز المتحدثين…');
+setS('3/3 تحميل نموذج تمييز المتحدثين…');
 const id='Xenova/wavlm-base-plus-sv',P=await AutoProcessor.from_pretrained(id),M=await AutoModel.from_pretrained(id,{dtype:'q8'}),C=[];let last=0;
 for(let i=0;i<segs.length;i++){const g=segs[i];
 if(g.e-g.s<1){g.k=last;continue}
@@ -56,22 +62,30 @@ if(b<0||(bs<0.8&&(!N||C.length<N))){C.push({s:u,n:1});b=C.length-1}else C[b].s=C
 g.k=last=b;if(i%5==0)setS('تمييز المتحدثين… '+Math.round(i/segs.length*100)+'%')}}
 $('#go').onclick=async()=>{
 if(!file)return setS('اختر ملفاً صوتياً أولاً');
-$('#go').disabled=true;segs=[];names={};$('#out').innerHTML='';$('#tools').hidden=true;$('#bar').value=0;
-let lock;try{lock=await navigator.wakeLock?.request('screen')}catch{}
+const go=$('#go');go.disabled=true;segs=[];names={};draw();$('#tools').hidden=true;$('#bar').value=0;
+let lock,note='';try{lock=await navigator.wakeLock?.request('screen')}catch{}
+const t0=Date.now();
 try{
-const q=$('#q').value,lang=$('#l').value,N=$('#n').value,gpu=!!navigator.gpu;
-const model=q==='base'?'Xenova/whisper-base':(q==='large'&&gpu)?'onnx-community/whisper-large-v3-turbo':'Xenova/whisper-small';
-const dtype=!gpu?'q8':model.includes('large')?{encoder_model:'fp16',decoder_model_merged:'q4'}:{encoder_model:'fp32',decoder_model_merged:'q8'};
-const asr=await pipeline('automatic-speech-recognition',model,{device:gpu?'webgpu':'wasm',dtype,progress_callback:p=>{if(p.status==='progress')setS('تحميل نموذج التفريغ (مرة واحدة)… '+Math.round(p.progress)+'%')}});
-setS('قراءة الملف الصوتي…');const pcm=await decode(file),W=16000*300;
+const q=$('#q').value,lang=$('#l').value,N=$('#n').value,gpu=q==='large'&&!!navigator.gpu;
+if(q==='large'&&!gpu)note=' (جهازك لا يدعم WebGPU فاستُخدم المستوى المتوازن)';
+env.backends.onnx.wasm.proxy=!gpu;
+const cfg=gpu?['onnx-community/whisper-large-v3-turbo',{encoder_model:'fp16',decoder_model_merged:'q4'}]:[q==='base'?'Xenova/whisper-base':'Xenova/whisper-small','q8'];
+setS('1/3 تحميل نموذج التفريغ… (أول مرة فقط)');
+const asr=await pipeline('automatic-speech-recognition',cfg[0],{device:gpu?'webgpu':'wasm',dtype:cfg[1],progress_callback:p=>{if(p.status==='progress')setS('1/3 تحميل نموذج التفريغ… '+Math.round(p.progress)+'%')}});
+setS('2/3 قراءة الملف الصوتي…');
+const pcm=await decode(file),W=16000*300;
+setS('مدة الملف '+(pcm.length/16000/60).toFixed(1)+' دقيقة — بدأ التفريغ…');
 for(let o=0;o<pcm.length;o+=W){
 const r=await asr(pcm.subarray(o,o+W),{language:lang==='auto'?null:lang,task:'transcribe',chunk_length_s:30,stride_length_s:5,return_timestamps:true});
-for(const c of r.chunks){const t=c.text.trim();if(!t)continue;const s=o/16000+c.timestamp[0];segs.push({s,e:o/16000+(c.timestamp[1]??c.timestamp[0]+2),t,k:0})}
+const cs=r.chunks?.length?r.chunks:(r.text?.trim()?[{text:r.text,timestamp:[0,W/16000]}]:[]);
+for(const c of cs){const t=(c.text||'').trim();if(!t)continue;const a=c.timestamp?.[0]??0;segs.push({s:o/16000+a,e:o/16000+(c.timestamp?.[1]??a+2),t,k:0})}
 const pr=Math.round(Math.min(o+W,pcm.length)/pcm.length*100);$('#bar').value=pr;setS('جارٍ التفريغ… '+pr+'%');draw()}
-if(N!=='1'&&segs.length)await diarize(pcm,N==='auto'?0:+N);
-draw();$('#tools').hidden=false;setS('اكتمل التفريغ ✔ — اضغط على اسم المتحدث لتغييره')
-}catch(e){setS('تعذّر التفريغ: '+(e.message||e))}
-lock?.release();$('#go').disabled=false};
+if(!segs.length){setS('لم يُعثر على كلام في الملف. تأكد أن الصوت واضح وأن اللغة صحيحة، أو جرّب مستوى دقة آخر.');return}
+if(N!=='1'){try{await diarize(pcm,N==='auto'?0:+N)}catch(e){note+=' (تعذّر تمييز المتحدثين: '+(e.message||e)+')'}}
+draw();$('#tools').hidden=false;$('#bar').value=100;
+setS('اكتمل التفريغ ✔ خلال '+Math.max(1,Math.round((Date.now()-t0)/60000))+' دقيقة'+note)
+}catch(e){setS('تعذّر التفريغ: '+(e.message||e)+' — جرّب مستوى «سريع» وأرسل لي هذه الرسالة.')}
+finally{lock?.release();go.disabled=false}};
 const multi=()=>new Set(segs.map(s=>s.k)).size>1,lines=()=>G.map(g=>[(multi()?nm(g.k)+' ':'')+'['+fmt(g.s)+']',g.t]);
 $('#c').onclick=()=>navigator.clipboard.writeText(lines().map(l=>l.join('\n')).join('\n\n'));
 $('#p').onclick=()=>print();
@@ -85,6 +99,7 @@ const e=new DataView(new ArrayBuffer(22)),sz=cd.reduce((a,x)=>a+x.length,0);
 e.setUint32(0,0x06054b50,true);e.setUint16(8,fs.length,true);e.setUint16(10,fs.length,true);e.setUint32(12,sz,true);e.setUint32(16,off,true);
 return new Blob([...pt,...cd,new Uint8Array(e.buffer)],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'})}
 $('#w').onclick=()=>{
+if(!G.length)return setS('لا يوجد نص للتصدير بعد');
 const run=(t,b,s)=>`<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>${b?'<w:b/><w:bCs/>':''}<w:sz w:val="${s||28}"/><w:szCs w:val="${s||28}"/><w:rtl/></w:rPr><w:t xml:space="preserve">${esc(t)}</w:t></w:r>`,
 para=r=>`<w:p><w:pPr><w:bidi/></w:pPr>${r}</w:p>`;
 const body=para(run('تفريغ: '+(file?.name||''),1,36))+lines().map(l=>para(run(l[0],1))+para(run(l[1]))).join('');
